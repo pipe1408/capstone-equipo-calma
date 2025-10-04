@@ -25,6 +25,8 @@ repositories {
 }
 
 dependencies {
+	implementation 'org.keycloak:keycloak-admin-client:26.0.7'
+	implementation 'org.keycloak:keycloak-authz-client:26.0.7'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
