@@ -1,6 +1,8 @@
 package com.capstone.calma.persistence;
 
+import com.capstone.calma.business.dto.LoginDto;
 import com.capstone.calma.business.dto.SignupDto;
+import com.capstone.calma.business.dto.TokenResponseDto;
 import com.capstone.calma.business.service.auth.IdentityProvider;
 import com.capstone.calma.config.KeycloakConfig;
 import kong.unirest.core.HttpResponse;
@@ -85,6 +87,51 @@ public class KeycloakIdentityProvider implements IdentityProvider {
         }
 
         return response.getBody().getArray().getJSONObject(0).getString("id");
+    }
+
+    @Override
+    public TokenResponseDto login(LoginDto loginDto) {
+        HttpResponse<JsonNode> response = Unirest.post(keycloakConfig.getTokenEndpoint())
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .field("client_id", keycloakConfig.getClientId())
+                .field("grant_type", "password")
+                .field("username", loginDto.email())
+                .field("password", loginDto.password())
+                .asJson();
+
+        if (response.getStatus() != 200) {
+            throw new RuntimeException(response.getStatus() + response.getStatusText() + response.getBody().toString());
+        }
+
+        var body = response.getBody().getObject();
+        return new TokenResponseDto(
+                body.getString("access_token"),
+                body.getString("refresh_token"),
+                body.getString("token_type"),
+                body.getInt("expires_in")
+        );
+    }
+
+    @Override
+    public TokenResponseDto refreshToken(String refreshToken) {
+        HttpResponse<JsonNode> response = Unirest.post(keycloakConfig.getTokenEndpoint())
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .field("client_id", keycloakConfig.getClientId())
+                .field("grant_type", "refresh_token")
+                .field("refresh_token", refreshToken)
+                .asJson();
+
+        if (response.getStatus() != 200) {
+            throw new RuntimeException(response.getStatus() + response.getStatusText() + response.getBody().toString());
+        }
+
+        var body = response.getBody().getObject();
+        return new TokenResponseDto(
+                body.getString("access_token"),
+                body.getString("refresh_token"),
+                body.getString("token_type"),
+                body.getInt("expires_in")
+        );
     }
 }
 
