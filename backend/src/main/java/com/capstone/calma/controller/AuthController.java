@@ -3,6 +3,7 @@ package com.capstone.calma.controller;
 import com.capstone.calma.business.dto.LoginDto;
 import com.capstone.calma.business.dto.RefreshTokenDto;
 import com.capstone.calma.business.dto.SignupDto;
+import com.capstone.calma.business.dto.TokenResponseDto;
 import com.capstone.calma.business.service.auth.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -25,12 +26,14 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<String> logIn(@RequestBody @Valid LoginDto loginDto) {
-        return ResponseEntity.ok("User registered successfully");
+    public ResponseEntity<TokenResponseDto> logIn(@RequestBody @Valid LoginDto loginDto) {
+        TokenResponseDto tokenResponse = authService.login(loginDto);
+        return ResponseEntity.ok(tokenResponse);
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<String> refreshToken(@RequestBody @Valid RefreshTokenDto refreshTokenDto) {
-        return ResponseEntity.ok("User registered successfully");
+    public ResponseEntity<TokenResponseDto> refreshToken(@RequestBody @Valid RefreshTokenDto refreshTokenDto) {
+        TokenResponseDto tokenResponse = authService.refreshToken(refreshTokenDto.refreshToken());
+        return ResponseEntity.ok(tokenResponse);
     }
 }
