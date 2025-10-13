@@ -1,8 +1,9 @@
-package com.capstone.calma.business.service.auth;
+package com.capstone.calma.business.service;
 
 import com.capstone.calma.business.dto.LoginDto;
 import com.capstone.calma.business.dto.SignupDto;
 import com.capstone.calma.business.dto.TokenResponseDto;
+import com.capstone.calma.persistence.identity.IdentityProvider;
 import org.springframework.stereotype.Service;
 
 @Service
