@@ -1,9 +1,8 @@
-package com.capstone.calma.persistence;
+package com.capstone.calma.persistence.identity;
 
 import com.capstone.calma.business.dto.LoginDto;
 import com.capstone.calma.business.dto.SignupDto;
 import com.capstone.calma.business.dto.TokenResponseDto;
-import com.capstone.calma.business.service.auth.IdentityProvider;
 import com.capstone.calma.config.KeycloakConfig;
 import jakarta.validation.constraints.NotNull;
 import kong.unirest.core.HttpResponse;
@@ -65,11 +64,6 @@ public class KeycloakIdentityProvider implements IdentityProvider {
         }
 
         return getUserIdByEmail(signupDto.email());
-    }
-
-    @Override
-    public boolean userExists(String email) {
-        return getUserIdByEmail(email).isEmpty();
     }
 
     public String getUserIdByEmail(String email) {
