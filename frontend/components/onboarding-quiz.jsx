@@ -32,10 +32,61 @@ export default function OnboardingQuiz() {
 
   const q = [
     { id: "q1", question: "¿Cuál es tu nombre?", type: "text", placeholder: "Escribe tu nombre completo" },
-    { id: "q2", question: "¿Qué te trae por aquí?", type: "radio", options: ["Busco información", "Quiero aprender algo nuevo", "Necesito ayuda con un proyecto", "Solo estoy explorando"] },
-    { id: "q3", question: "¿Cuáles son tus intereses? (Selecciona todos los que apliquen)", type: "checkbox", options: ["Tecnología", "Diseño", "Negocios", "Educación", "Entretenimiento"] },
-    { id: "q4", question: "¿Con qué frecuencia usarías esta plataforma?", type: "radio", options: ["Diariamente", "Varias veces por semana", "Una vez por semana", "Ocasionalmente"] },
-    { id: "q5", question: "¿Qué esperas lograr con nosotros?", type: "text", placeholder: "Cuéntanos tus objetivos" },
+    {
+      id: "q2",
+      question: "¿Cómo ha sido tu estado de ánimo en los últimos días?",
+      type: "radio",
+      options: ["Muy bien", "Bien", "Más o menos", "Regular", "Difícil / No me he sentido bien"],
+    },
+    {
+      id: "q3",
+      question: "Cuando algo te preocupa, ¿sientes que tienes a alguien con quien hablar?",
+      type: "radio",
+      options: ["Sí, siempre", "A veces", "Solo en situaciones muy puntuales", "Casi nunca", "No tengo a nadie con quien hablar de eso"],
+    },
+    {
+      id: "q4",
+      question: "¿Qué tan presentes han estado pensamientos de comparación con otras personas en redes sociales?",
+      type: "radio",
+      options: ["Casi nunca", "De vez en cuando", "Frecuentemente", "Muy seguido", "Prácticamente todos los días"],
+    },
+    {
+      id: "q5",
+      question: "¿Cómo describirías tu nivel de energía en este momento?",
+      type: "radio",
+      options: ["Alta", "Adecuada", "Media", "Baja", "Muy baja / Me cuesta hacer cosas"],
+    },
+    {
+      id: "q6",
+      question: "¿Qué tan fácil o difícil te ha resultado dormir últimamente?",
+      type: "radio",
+      options: ["Duermo muy bien", "Duermo bien", "A veces me cuesta conciliar el sueño", "Me cuesta dormir varias noches", "Duermo mal la mayoría de las noches"],
+    },
+    {
+      id: "q7",
+      question: "¿Cómo te sientes respecto al uso que haces de redes sociales?",
+      type: "radio",
+      options: ["Me siento bien, creo que lo manejo bien", "A veces me afecta", "Me cuesta controlar cuánto uso", "Me genera ansiedad/comparación", "No sé cómo manejarlo"],
+    },
+    {
+      id: "q8",
+      question: "Cuando te sientes triste o estresado, ¿cómo sueles reaccionar?",
+      type: "radio",
+      options: ["Lo hablo con alguien", "Busco distraerme", "Me aíslo o evito hablar", "Me quedo mucho tiempo en redes", "No estoy seguro / depende del día"],
+    },
+    { id: "q9", question: "¿Qué esperas lograr con nosotros?", type: "text", placeholder: "Cuéntanos tus objetivos" },
+    {
+      id: "q10",
+      question: "¿Cómo te gustaría que te acompañáramos aquí?",
+      type: "radio",
+      options: ["Con ejercicios cortos para sentirme mejor", "Con conversaciones tranquilas y apoyo emocional", "Con recordatorios para organizarme o descansar", "Con herramientas para manejar redes sociales", "Aún no lo sé, quiero explorar"],
+    },
+    {
+      id: "q11",
+      question: "¿Qué nivel de interacción prefieres para empezar?",
+      type: "radio",
+      options: ["Conversaciones breves", "Recomendaciones puntuales", "Actividades guiadas", "Conversaciones más largas cuando las necesite", "Todavía no sé, prefiero probar"],
+    },
   ]
   const idx = q.findIndex(x => x.id === step)
   const progress = step === "consent" ? 0 :
@@ -58,6 +109,18 @@ export default function OnboardingQuiz() {
       toast.info("Debes iniciar sesión con Firebase para continuar")
       setStep("email")
     }
+  }
+
+  const handleChatLogout = () => {
+    setShowChat(false)
+    setStep("consent")
+    setAnswers({})
+    setEmail("")
+    setConfirmEmail("")
+    setPassword("")
+    setVerificationCode("")
+    setIsLoading(false)
+    setError("")
   }
 
   const handleNext = () => {
@@ -112,7 +175,7 @@ export default function OnboardingQuiz() {
     }
   }
 
-  if (showChat) return <AIChat userName={answers.q1 || "tu cuenta"} userEmail={email} />
+  if (showChat) return <AIChat userName={answers.q1 || "tu cuenta"} userEmail={email} onLogout={handleChatLogout} />
 
   const showError = displayError && (
     <Alert variant="destructive"><AlertCircle className="h-4 w-4" />
