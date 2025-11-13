@@ -5,17 +5,38 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Send, Bot, User } from "lucide-react"
+import { Send, Bot, User, LogOut } from "lucide-react"
 import { toast } from "sonner"
+import { useFirebaseAuth } from "@/hooks/useFirebaseAuth"
 
-export default function AIChat({ userName, userEmail }) {
+export default function AIChat({ userName, userEmail, onLogout }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState("")
   const [isTyping, setIsTyping] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
   const messagesEndRef = useRef(null)
+  const { logout } = useFirebaseAuth?.() ?? { logout: async () => {} }
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   useEffect(() => { scrollToBottom() }, [messages])
+
+  const handleLogout = async () => {
+    if (isLoggingOut) return
+    setIsLoggingOut(true)
+    try {
+      await logout()
+      setMessages([])
+      setInput("")
+      toast.success("Sesión cerrada. ¡Hasta pronto!")
+      onLogout?.()
+    } catch (err) {
+      const msgErr = err instanceof Error ? err.message : "No pudimos cerrar sesión"
+      toast.error(msgErr)
+      console.error("Logout error:", err)
+    } finally {
+      setIsLoggingOut(false)
+    }
+  }
 
   const handleSend = async () => {
     if (!input.trim()) {
@@ -62,7 +83,7 @@ export default function AIChat({ userName, userEmail }) {
     <div className="min-h-screen bg-gradient-to-br from-background via-primary/5 to-accent/10 flex items-center justify-center p-4">
       <Card className="w-full max-w-4xl h-[600px] shadow-2xl border-2 flex flex-col">
         <CardHeader className="border-b bg-gradient-to-r from-primary/10 to-accent/10">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="space-y-1">
               <CardTitle className="text-2xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
                 Calma
@@ -71,9 +92,30 @@ export default function AIChat({ userName, userEmail }) {
                 ¡Hola {userName || 'amig@'}! Bienvenido a tu espacio de calma. ¿En qué puedo ayudarte hoy?
               </p>
             </div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-              En línea
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                En línea
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
+                >
+                  {isLoggingOut ? "Cerrando..." : "Cerrar sesión"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
+                  aria-label="Cerrar sesión"
+                >
+                  <LogOut className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
         </CardHeader>
