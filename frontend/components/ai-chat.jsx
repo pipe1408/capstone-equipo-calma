@@ -19,6 +19,7 @@ export default function AIChat({ userName, userEmail, onLogout, answers = {} }) 
   const conversationHistoryRef = useRef([])
 
   const { logout } = useFirebaseAuth?.() ?? { logout: async () => {} }
+  console.log("🔑 Gemini key en runtime:", process.env.NEXT_PUBLIC_GEMINI_API_KEY)
   const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY
   const GEMINI_MODEL = "gemini-2.5-flash"
 
