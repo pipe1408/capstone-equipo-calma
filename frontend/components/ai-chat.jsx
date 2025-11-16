@@ -5,11 +5,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Send, Bot, User, LogOut } from "lucide-react"
+import { Send, Bot, User, LogOut, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { useFirebaseAuth } from "@/hooks/useFirebaseAuth"
 
-export default function AIChat({ userName, userEmail, onLogout }) {
+export default function AIChat({ userName, userEmail, onLogout, answers = {} }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState("")
   const [isTyping, setIsTyping] = useState(false)
@@ -17,9 +17,16 @@ export default function AIChat({ userName, userEmail, onLogout }) {
   const messagesEndRef = useRef(null)
   const { logout } = useFirebaseAuth?.() ?? { logout: async () => {} }
 
-  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  useEffect(() => { scrollToBottom() }, [messages])
+  // === 🔑 CONFIGURACIÓN GEMINI 2.5 FUNCIONAL ===
+  const API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY
+  const MODEL = "gemini-2.5-flash"
+  const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`
 
+  // === AUTOSCROLL ===
+  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  useEffect(() => scrollToBottom(), [messages])
+
+  // === LOGOUT ===
   const handleLogout = async () => {
     if (isLoggingOut) return
     setIsLoggingOut(true)
@@ -29,44 +36,71 @@ export default function AIChat({ userName, userEmail, onLogout }) {
       setInput("")
       toast.success("Sesión cerrada. ¡Hasta pronto!")
       onLogout?.()
-    } catch (err) {
-      const msgErr = err instanceof Error ? err.message : "No pudimos cerrar sesión"
-      toast.error(msgErr)
-      console.error("Logout error:", err)
+    } catch {
+      toast.error("Error al cerrar sesión")
     } finally {
       setIsLoggingOut(false)
     }
   }
 
+  const handleRefresh = () => {
+    setMessages([])
+    setInput("")
+    toast.success("Chat reiniciado")
+  }
+
+  // === ENVÍO DE MENSAJE ===
   const handleSend = async () => {
-    if (!input.trim()) {
+    const trimmed = input.trim()
+    if (!trimmed) {
       toast.warning("Escribe un mensaje primero")
       return
     }
+    if (!API_KEY) {
+      toast.error("Falta la API Key de Gemini en .env.local")
+      return
+    }
 
-    const userMessage = { id: messages.length + 1, role: "user", content: input }
-    setMessages((prev) => [...prev, userMessage])
+    const userMsg = { id: Date.now(), role: "user", content: trimmed }
+    setMessages((prev) => [...prev, userMsg])
     setInput("")
     setIsTyping(true)
 
     try {
-      // Aquí iría tu llamada real a la API del chat:
-      // const res = await fetch('/api/chat', { method: 'POST', body: JSON.stringify({ msg: input, userName, userEmail }) })
-      // if (!res.ok) throw new Error('El servidor no respondió correctamente')
-      // const data = await res.json()
-      await new Promise((r) => setTimeout(r, 800))
-
-      const aiMessage = {
-        id: userMessage.id + 1,
-        role: "assistant",
-        content:
-          "Esta es una respuesta de demostración. Aquí se conectará tu IA real para proporcionar respuestas inteligentes y personalizadas.",
+      const context = `
+Eres Calma, un asistente empático y claro.
+Usuario: ${userName || "Invitado"} (${userEmail || "sin correo"}).
+Respuestas del onboarding: ${JSON.stringify(answers, null, 2)}.
+Responde de forma breve, comprensiva y práctica.
+      `
+      const body = {
+        contents: [
+          { role: "user", parts: [{ text: context }] },
+          { role: "user", parts: [{ text: trimmed }] },
+        ],
       }
-      setMessages((prev) => [...prev, aiMessage])
+
+      const res = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+
+      const data = await res.json()
+      if (!res.ok) {
+        console.error("Gemini response:", data)
+        throw new Error(data?.error?.message || "Fallo de API Gemini")
+      }
+
+      const text =
+        data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ||
+        "No tengo una respuesta disponible por ahora."
+
+      const aiMsg = { id: userMsg.id + 1, role: "assistant", content: text }
+      setMessages((prev) => [...prev, aiMsg])
     } catch (err) {
-      const msgErr = err instanceof Error ? err.message : "Error inesperado"
-      toast.error(`Chat falló: ${msgErr}`)
-      console.error("Chat error:", err)
+      console.error("Gemini error:", err)
+      toast.error(`Error al conectar con Gemini: ${err.message}`)
     } finally {
       setIsTyping(false)
     }
@@ -82,117 +116,70 @@ export default function AIChat({ userName, userEmail, onLogout }) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-primary/5 to-accent/10 flex items-center justify-center p-4">
       <Card className="w-full max-w-4xl h-[600px] shadow-2xl border-2 flex flex-col">
-        <CardHeader className="border-b bg-gradient-to-r from-primary/10 to-accent/10">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="space-y-1">
-              <CardTitle className="text-2xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
-                Calma
-              </CardTitle>
-              <p className="text-sm text-muted-foreground">
-                ¡Hola {userName || 'amig@'}! Bienvenido a tu espacio de calma. ¿En qué puedo ayudarte hoy?
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-3">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                En línea
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleLogout}
-                  disabled={isLoggingOut}
-                >
-                  {isLoggingOut ? "Cerrando..." : "Cerrar sesión"}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleLogout}
-                  disabled={isLoggingOut}
-                  aria-label="Cerrar sesión"
-                >
-                  <LogOut className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
+        <CardHeader className="border-b bg-gradient-to-r from-primary/10 to-accent/10 flex justify-between items-center">
+          <div>
+            <CardTitle className="text-2xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
+              Calma
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              ¡Hola {userName || "amig@"}! Bienvenido a tu espacio de calma 💬
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" onClick={handleRefresh} disabled={isTyping}>
+              <RefreshCw className="mr-1 h-4 w-4" /> Reiniciar
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleLogout} disabled={isLoggingOut}>
+              {isLoggingOut ? "Cerrando..." : "Cerrar sesión"}
+            </Button>
           </div>
         </CardHeader>
 
         <CardContent className="flex-1 overflow-y-auto p-6 space-y-4">
-          {messages.length === 0 && (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center space-y-3 max-w-md">
-                <div className="flex justify-center">
-                  <div className="rounded-full bg-primary/10 p-4">
-                    <Bot className="h-12 w-12 text-primary" />
-                  </div>
-                </div>
-                <h3 className="text-lg font-semibold text-foreground">Comienza una conversación</h3>
-                <p className="text-sm text-muted-foreground">
-                  Escribe un mensaje para empezar a chatear con tu asistente de IA
-                </p>
-              </div>
-            </div>
-          )}
-
-          {messages.map((message) => (
+          {messages.map((msg) => (
             <div
-              key={message.id}
-              className={`flex gap-3 animate-in fade-in duration-500 ${
-                message.role === "user" ? "flex-row-reverse" : "flex-row"
-              }`}
+              key={msg.id}
+              className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
             >
-              <Avatar className={message.role === "user" ? "bg-primary" : "bg-accent"}>
+              <Avatar className={msg.role === "user" ? "bg-primary" : "bg-accent"}>
                 <AvatarFallback>
-                  {message.role === "user" ? <User className="h-5 w-5" /> : <Bot className="h-5 w-5" />}
+                  {msg.role === "user" ? <User /> : <Bot />}
                 </AvatarFallback>
               </Avatar>
               <div
-                className={`flex-1 max-w-[80%] rounded-2xl p-4 ${
-                  message.role === "user" ? "bg-primary text-primary-foreground ml-auto" : "bg-muted"
+                className={`max-w-[80%] rounded-2xl p-3 ${
+                  msg.role === "user"
+                    ? "bg-primary text-primary-foreground ml-auto"
+                    : "bg-muted"
                 }`}
               >
-                <p className="text-sm leading-relaxed">{message.content}</p>
+                <p className="text-sm whitespace-pre-line">{msg.content}</p>
               </div>
             </div>
           ))}
 
           {isTyping && (
-            <div className="flex gap-3 animate-in fade-in duration-500">
-              <Avatar className="bg-accent">
-                <AvatarFallback>
-                  <Bot className="h-5 w-5" />
-                </AvatarFallback>
-              </Avatar>
-              <div className="bg-muted rounded-2xl p-4">
-                <div className="flex gap-1">
-                  <div className="h-2 w-2 rounded-full bg-foreground/40 animate-bounce" style={{ animationDelay: "0ms" }} />
-                  <div className="h-2 w-2 rounded-full bg-foreground/40 animate-bounce" style={{ animationDelay: "150ms" }} />
-                  <div className="h-2 w-2 rounded-full bg-foreground/40 animate-bounce" style={{ animationDelay: "300ms" }} />
-                </div>
-              </div>
+            <div className="flex gap-2 items-center text-muted-foreground text-sm">
+              <Bot className="h-5 w-5" />
+              <span>Escribiendo...</span>
             </div>
           )}
 
           <div ref={messagesEndRef} />
         </CardContent>
 
-        <div className="border-t p-4 bg-card">
-          <div className="flex gap-2">
-            <Input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Escribe tu mensaje..."
-              className="flex-1 text-base py-6"
-              disabled={isTyping}
-            />
-            <Button onClick={handleSend} size="lg" className="px-6" disabled={isTyping || !input.trim()}>
-              <Send className="h-5 w-5" />
-            </Button>
-          </div>
+        <div className="border-t p-4 bg-card flex gap-2">
+          <Input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder="Escribe tu mensaje..."
+            disabled={isTyping}
+            className="flex-1 text-base py-6"
+          />
+          <Button onClick={handleSend} disabled={!input.trim() || isTyping}>
+            <Send className="h-5 w-5" />
+          </Button>
         </div>
       </Card>
     </div>
