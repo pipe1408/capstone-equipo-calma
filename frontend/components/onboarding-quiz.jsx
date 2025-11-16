@@ -175,7 +175,15 @@ export default function OnboardingQuiz() {
     }
   }
 
-  if (showChat) return <AIChat userName={answers.q1 || "tu cuenta"} userEmail={email} onLogout={handleChatLogout} />
+  if (showChat)
+    return (
+      <AIChat
+        userName={answers.q1 || "tu cuenta"}
+        userEmail={email}
+        answers={answers}
+        onLogout={handleChatLogout}
+      />
+    )
 
   const showError = displayError && (
     <Alert variant="destructive"><AlertCircle className="h-4 w-4" />
