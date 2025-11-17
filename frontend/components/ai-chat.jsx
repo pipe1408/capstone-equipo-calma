@@ -1,13 +1,100 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Send, Bot, User, LogOut, RefreshCw } from "lucide-react"
+import { Calendar } from "@/components/ui/calendar"
+import { Send, Bot, User, LogOut, RefreshCw, CalendarDays } from "lucide-react"
 import { toast } from "sonner"
 import { useFirebaseAuth } from "@/hooks/useFirebaseAuth"
+
+const STREAK_STORAGE_KEY = "calma-streaks"
+
+const toISODateString = (date) => {
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, "0")
+  const day = `${date.getDate()}`.padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+const parseISODate = (isoString) => {
+  if (!isoString) return null
+  const [year, month, day] = isoString.split("-").map(Number)
+  return new Date(year, (month ?? 1) - 1, day ?? 1)
+}
+
+const differenceInDays = (a, b) => {
+  if (!a || !b) return 0
+  const first = new Date(a)
+  const second = new Date(b)
+  first.setHours(0, 0, 0, 0)
+  second.setHours(0, 0, 0, 0)
+  return Math.round((first.getTime() - second.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+const seedStreakDays = () => {
+  const today = new Date()
+  const collection = []
+  for (let i = 0; i < 12; i++) {
+    if (i === 6 || i === 9) continue
+    const target = new Date(today)
+    target.setDate(today.getDate() - i)
+    collection.push(toISODateString(target))
+  }
+  return collection.sort()
+}
+
+const calculateStreakMetrics = (days) => {
+  if (!Array.isArray(days) || !days.length) {
+    return { currentStreak: 0, longestStreak: 0, lastCheckIn: null, totalCheckIns: 0 }
+  }
+
+  const sorted = [...days].sort()
+  let longest = 1
+  let currentRun = 1
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prevDate = parseISODate(sorted[i - 1])
+    const currentDate = parseISODate(sorted[i])
+    const diff = differenceInDays(currentDate, prevDate)
+    if (diff === 0) continue
+    if (diff === 1) {
+      currentRun += 1
+    } else {
+      currentRun = 1
+    }
+    if (currentRun > longest) longest = currentRun
+  }
+
+  const lastCheckIn = sorted[sorted.length - 1]
+  const todayDiff = differenceInDays(new Date(), parseISODate(lastCheckIn))
+  const currentStreak = todayDiff <= 1 ? currentRun : 0
+
+  return {
+    currentStreak,
+    longestStreak: Math.max(longest, currentRun),
+    lastCheckIn,
+    totalCheckIns: sorted.length,
+  }
+}
+
+const getNextMilestone = (currentStreak) => {
+  const milestones = [3, 7, 14, 21, 30]
+  return milestones.find((goal) => goal > currentStreak) ?? (currentStreak || 0) + 1
+}
+
+const formatDisplayDate = (isoString) => {
+  if (!isoString) return "Aún no registras una racha"
+  const date = parseISODate(isoString)
+  const formatted = date.toLocaleDateString("es-ES", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  })
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1)
+}
 
 export default function AIChat({ userName, userEmail, onLogout, answers = {} }) {
   const [messages, setMessages] = useState([])
@@ -15,6 +102,8 @@ export default function AIChat({ userName, userEmail, onLogout, answers = {} }) 
   const [isTyping, setIsTyping] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [userMode, setUserMode] = useState(null)
+  const [showStreaks, setShowStreaks] = useState(false)
+  const [streakDays, setStreakDays] = useState([])
   const messagesEndRef = useRef(null)
   const conversationHistoryRef = useRef([])
 
@@ -23,9 +112,39 @@ export default function AIChat({ userName, userEmail, onLogout, answers = {} }) 
   const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY
   const GEMINI_MODEL = "gemini-2.5-flash"
 
+  const streakStats = useMemo(() => calculateStreakMetrics(streakDays), [streakDays])
+  const selectedStreakDates = useMemo(
+    () => streakDays.map((day) => parseISODate(day)).filter(Boolean),
+    [streakDays]
+  )
+  const defaultCalendarMonth = selectedStreakDates[selectedStreakDates.length - 1] || new Date()
+  const nextMilestone = getNextMilestone(streakStats.currentStreak)
+  const daysToMilestone = Math.max(nextMilestone - streakStats.currentStreak, 0)
+
   // === Scroll automático ===
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   useEffect(() => { scrollToBottom() }, [messages])
+  useEffect(() => { if (!showStreaks) scrollToBottom() }, [showStreaks])
+
+  // === Persistencia de rachas en localStorage ===
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    try {
+      const stored = window.localStorage.getItem(STREAK_STORAGE_KEY)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        if (Array.isArray(parsed)) {
+          setStreakDays(parsed)
+          return
+        }
+      }
+      const seeded = seedStreakDays()
+      setStreakDays(seeded)
+      window.localStorage.setItem(STREAK_STORAGE_KEY, JSON.stringify(seeded))
+    } catch (err) {
+      console.error("Error cargando rachas", err)
+    }
+  }, [])
 
   // === BIENVENIDA ===
   const showWelcome = () => {
@@ -68,6 +187,7 @@ Habla con calidez y evita repetir saludos salvo si se reinicia el chat.
       setMessages([])
       setInput("")
       conversationHistoryRef.current = []
+      setShowStreaks(false)
       toast.success("Sesión cerrada. ¡Hasta pronto!")
       onLogout?.()
     } catch {
@@ -83,9 +203,24 @@ Habla con calidez y evita repetir saludos salvo si se reinicia el chat.
     setMessages([])
     setInput("")
     setUserMode(null)
+    setShowStreaks(false)
     conversationHistoryRef.current = []
     toast.success("Chat reiniciado 🌱")
     showWelcome()
+  }
+
+  const handleToggleCalendar = () => setShowStreaks((prev) => !prev)
+
+  const recordStreakCheckIn = () => {
+    const todayISO = toISODateString(new Date())
+    setStreakDays((prev) => {
+      if (prev.includes(todayISO)) return prev
+      const updated = [...prev, todayISO].sort()
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(STREAK_STORAGE_KEY, JSON.stringify(updated))
+      }
+      return updated
+    })
   }
 
   // === OBTENER CONTEXTO EMOCIONAL DESDE QUIZ ===
@@ -224,6 +359,7 @@ Ofrece consejos adaptados a ese contexto.`
 
     setMessages((prev) => [...prev, { id: Date.now(), role: "user", content: trimmed }])
     setInput("")
+    recordStreakCheckIn()
     sendToGemini(interpretedPrompt)
   }
 
@@ -249,6 +385,10 @@ Ofrece consejos adaptados a ese contexto.`
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <Button variant={showStreaks ? "default" : "outline"} size="sm" onClick={handleToggleCalendar}>
+                <CalendarDays className="mr-2 h-3.5 w-3.5" />
+                {showStreaks ? "Volver al chat" : "Ver rachas"}
+              </Button>
               <Button variant="secondary" size="sm" onClick={handleRefreshChat}>
                 <RefreshCw className="mr-2 h-3.5 w-3.5" /> Reiniciar
               </Button>
@@ -259,65 +399,132 @@ Ofrece consejos adaptados a ese contexto.`
           </div>
         </CardHeader>
 
-        <CardContent className="flex-1 overflow-y-auto p-6 space-y-4">
-          {messages.map((m) => (
-            <div
-              key={m.id}
-              className={`flex gap-3 ${m.role === "user" ? "flex-row-reverse" : "flex-row"}`}
-            >
-              <Avatar className={m.role === "user" ? "bg-primary" : "bg-accent"}>
-                <AvatarFallback>
-                  {m.role === "user" ? <User className="h-5 w-5" /> : <Bot className="h-5 w-5" />}
-                </AvatarFallback>
-              </Avatar>
-              <div
-                className={`flex-1 max-w-[80%] rounded-2xl p-4 ${
-                  m.role === "user" ? "bg-primary text-primary-foreground ml-auto" : "bg-muted"
-                }`}
-              >
-                <p className="text-sm leading-relaxed whitespace-pre-line">{m.content}</p>
+        <CardContent className={`flex-1 overflow-y-auto p-6 ${showStreaks ? "" : "space-y-4"}`}>
+          {showStreaks ? (
+            <div className="flex h-full flex-col gap-6">
+              <div>
+                <h2 className="text-xl font-semibold">Calendario de rachas</h2>
+                <p className="text-sm text-muted-foreground">
+                  Revisa tus check-ins diarios y celebra tu constancia con Calma.
+                </p>
+              </div>
+              <div className="grid flex-1 gap-6 lg:grid-cols-2">
+                <div className="space-y-4">
+                  <div className="rounded-2xl border bg-card/50 p-4">
+                    <p className="text-sm text-muted-foreground">Racha actual</p>
+                    <p className="text-3xl font-semibold">{streakStats.currentStreak} días</p>
+                    <p className="text-xs text-muted-foreground">
+                      Tu mejor racha es de {streakStats.longestStreak} días.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border bg-primary/5 p-4">
+                    <p className="text-sm text-muted-foreground">Próximo objetivo</p>
+                    <p className="text-lg font-medium">
+                      {nextMilestone} días ({daysToMilestone} más)
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Mantén tu ritmo y alcanzas el siguiente hito.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border bg-card/50 p-4">
+                    <p className="text-sm text-muted-foreground">Último check-in</p>
+                    <p className="text-lg font-medium">{formatDisplayDate(streakStats.lastCheckIn)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Has registrado {streakStats.totalCheckIns} días en total.
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded-2xl border bg-background/80 p-4">
+                  <Calendar
+                    mode="multiple"
+                    selected={selectedStreakDates}
+                    defaultMonth={defaultCalendarMonth}
+                    showOutsideDays
+                    className="mx-auto"
+                    modifiers={{ streak: selectedStreakDates }}
+                    modifiersClassNames={{
+                      streak: "bg-primary text-primary-foreground hover:bg-primary/90",
+                    }}
+                  />
+                  <p className="mt-3 text-center text-sm text-muted-foreground">
+                    Los días resaltados muestran cuando volviste a tu espacio de calma.
+                  </p>
+                </div>
               </div>
             </div>
-          ))}
+          ) : (
+            <>
+              {messages.map((m) => (
+                <div
+                  key={m.id}
+                  className={`flex gap-3 ${m.role === "user" ? "flex-row-reverse" : "flex-row"}`}
+                >
+                  <Avatar className={m.role === "user" ? "bg-primary" : "bg-accent"}>
+                    <AvatarFallback>
+                      {m.role === "user" ? <User className="h-5 w-5" /> : <Bot className="h-5 w-5" />}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div
+                    className={`flex-1 max-w-[80%] rounded-2xl p-4 ${
+                      m.role === "user" ? "bg-primary text-primary-foreground ml-auto" : "bg-muted"
+                    }`}
+                  >
+                    <p className="text-sm leading-relaxed whitespace-pre-line">{m.content}</p>
+                  </div>
+                </div>
+              ))}
 
-          {isTyping && (
-            <div className="flex gap-3">
-              <Avatar className="bg-accent">
-                <AvatarFallback><Bot className="h-5 w-5" /></AvatarFallback>
-              </Avatar>
-              <div className="bg-muted rounded-2xl p-4 flex gap-1">
-                <div className="h-2 w-2 rounded-full bg-foreground/40 animate-bounce" />
-                <div className="h-2 w-2 rounded-full bg-foreground/40 animate-bounce delay-150" />
-                <div className="h-2 w-2 rounded-full bg-foreground/40 animate-bounce delay-300" />
-              </div>
-            </div>
+              {isTyping && (
+                <div className="flex gap-3">
+                  <Avatar className="bg-accent">
+                    <AvatarFallback><Bot className="h-5 w-5" /></AvatarFallback>
+                  </Avatar>
+                  <div className="bg-muted rounded-2xl p-4 flex gap-1">
+                    <div className="h-2 w-2 rounded-full bg-foreground/40 animate-bounce" />
+                    <div className="h-2 w-2 rounded-full bg-foreground/40 animate-bounce delay-150" />
+                    <div className="h-2 w-2 rounded-full bg-foreground/40 animate-bounce delay-300" />
+                  </div>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </>
           )}
-          <div ref={messagesEndRef} />
         </CardContent>
 
         <div className="border-t p-4 bg-card">
-          <div className="flex gap-2 items-center">
-            {userMode && (
-              <span className="text-xs text-muted-foreground px-3 py-1 bg-primary/10 rounded-full">
-                🌼 Modo: {userMode === 1 ? "Conversación" : userMode === 2 ? "Ejercicios" : "Consejos"}
-              </span>
-            )}
-            <Input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder={
-                userMode
-                  ? "Escribe tu mensaje (o 'menú' para volver al inicio)..."
-                  : "Escribe tu mensaje..."
-              }
-              className="flex-1 text-base py-6"
-              disabled={isTyping}
-            />
-            <Button onClick={handleSend} size="lg" disabled={isTyping || !input.trim()}>
-              <Send className="h-5 w-5" />
-            </Button>
-          </div>
+          {showStreaks ? (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-muted-foreground">
+                Mantén tu racha viva volviendo al chat y sumando un nuevo check-in.
+              </p>
+              <Button onClick={() => setShowStreaks(false)} size="sm">
+                Regresar al chat
+              </Button>
+            </div>
+          ) : (
+            <div className="flex gap-2 items-center">
+              {userMode && (
+                <span className="text-xs text-muted-foreground px-3 py-1 bg-primary/10 rounded-full">
+                  🌼 Modo: {userMode === 1 ? "Conversación" : userMode === 2 ? "Ejercicios" : "Consejos"}
+                </span>
+              )}
+              <Input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder={
+                  userMode
+                    ? "Escribe tu mensaje (o 'menú' para volver al inicio)..."
+                    : "Escribe tu mensaje..."
+                }
+                className="flex-1 text-base py-6"
+                disabled={isTyping}
+              />
+              <Button onClick={handleSend} size="lg" disabled={isTyping || !input.trim()}>
+                <Send className="h-5 w-5" />
+              </Button>
+            </div>
+          )}
         </div>
       </Card>
     </div>
