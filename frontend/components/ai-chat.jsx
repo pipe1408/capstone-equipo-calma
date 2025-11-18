@@ -11,6 +11,48 @@ import { toast } from "sonner"
 import { useFirebaseAuth } from "@/hooks/useFirebaseAuth"
 
 const STREAK_STORAGE_KEY = "calma-streaks"
+const MODE_LABELS = {
+  1: "Conversación empática",
+  2: "Ejercicios guiados",
+  3: "Consejos prácticos",
+}
+const MODE_KEYWORDS = {
+  1: ["1", "uno", "hablar", "modo 1", "opcion 1", "opcion uno"],
+  2: ["2", "dos", "ejercicio", "rutina", "modo 2", "opcion 2", "opcion dos"],
+  3: ["3", "tres", "consejo", "idea", "modo 3", "opcion 3", "opcion tres"],
+}
+const MENU_KEYWORDS = ["menu", "cambiar", "volver", "otra cosa"]
+
+const getModeLabel = (mode) => MODE_LABELS[mode] || "sin modo"
+
+const normalizeText = (value = "") =>
+  value
+    .toString()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+
+const buildModeDirective = (mode, { emotionalContext = "", isNewMode = false } = {}) => {
+  if (mode === 1) {
+    return isNewMode
+      ? "El usuario eligió el modo Conversación Empática. Da una bienvenida cercana, valida su decisión de hablar y hazle saber que lo escuchas sin juicios."
+      : "Mantén el modo Conversación Empática: responde con calidez, valida emociones, evita repetir menús o saludos extensos y haz preguntas abiertas si aportan."
+  }
+  if (mode === 2) {
+    return isNewMode
+      ? "El usuario eligió ejercicios o rutinas guiadas. Propón un ejercicio breve (respiración, mindfulness o corporal), guía paso a paso y pregunta cómo se sintió."
+      : "Continúa en modo Ejercicios guiados: ofrece instrucciones claras y cortas, acompaña el ritmo del usuario y sugiere variaciones suaves."
+  }
+  if (mode === 3) {
+    const contextText = emotionalContext ? `Ten en cuenta su contexto: ${emotionalContext}` : ""
+    return isNewMode
+      ? `El usuario eligió consejos prácticos. ${contextText} Ofrece ideas concretas y alcanzables para su día.`
+      : `Mantén el modo Consejos prácticos. ${contextText} Da recomendaciones realistas y accionables.`
+  }
+  return ""
+}
 
 const toISODateString = (date) => {
   const year = date.getFullYear()
@@ -239,23 +281,27 @@ Apoyo social: ${social}.
 Objetivo: ${goal}.
 Preferencia de acompañamiento: ${style}.
 `
-    return summary
+    return summary.trim()
   }
 
   // === ENVIAR A GEMINI ===
-  const sendToGemini = async (userText) => {
+  const sendToGemini = async ({ userText, modeInstruction = "", modeOverride = null }) => {
     if (!GEMINI_API_KEY) {
       toast.error("Falta la clave de API de Gemini")
       return
     }
 
-    const userMsg = { role: "user", parts: [{ text: userText }] }
+    const textToSend = userText?.trim()
+    if (!textToSend) return
+
+    const userMsg = { role: "user", parts: [{ text: textToSend }] }
     const placeholderId = Date.now()
     setIsTyping(true)
     setMessages((prev) => [...prev, { id: placeholderId, role: "assistant", content: "..." }])
 
     try {
       const emotionalContext = getEmotionalContext()
+      const effectiveMode = typeof modeOverride === "number" ? modeOverride : userMode
 
       const persistentContext = {
         role: "user",
@@ -263,13 +309,19 @@ Preferencia de acompañamiento: ${style}.
           { text: `Contexto persistente del usuario:` },
           { text: `Nombre: ${userName || "Invitado"}` },
           { text: `Correo: ${userEmail || "No proporcionado"}` },
-          { text: `Modo activo actual: ${userMode || "sin modo"}` },
+          { text: `Modo activo actual: ${getModeLabel(effectiveMode)}` },
           { text: `Contexto emocional y de bienestar: ${emotionalContext}` },
         ],
       }
 
+      const conversationPayload = [persistentContext, ...conversationHistoryRef.current]
+      if (modeInstruction?.trim()) {
+        conversationPayload.push({ role: "user", parts: [{ text: modeInstruction }] })
+      }
+      conversationPayload.push(userMsg)
+
       const body = JSON.stringify({
-        contents: [persistentContext, ...conversationHistoryRef.current, userMsg],
+        contents: conversationPayload,
         generationConfig: { temperature: 0.7, maxOutputTokens: 512 },
       })
 
@@ -322,45 +374,58 @@ Preferencia de acompañamiento: ${style}.
     const trimmed = input.trim()
     if (!trimmed) return
 
-    let interpretedPrompt = trimmed.toLowerCase()
+    const normalized = normalizeText(trimmed)
+    const normalizedCommand = normalized.replace(/[^a-z0-9\s]/g, "").trim()
+    const emotionalContext = getEmotionalContext()
 
-    // reiniciar menú
-    if (["menu", "menú", "cambiar", "volver", "otra cosa"].some((w) => interpretedPrompt.includes(w))) {
+    if (MENU_KEYWORDS.some((keyword) => normalized.includes(keyword))) {
       setUserMode(null)
       showWelcome()
       setInput("")
       return
     }
 
-    // detectar elección inicial
+    const matchesMode = (mode) => (MODE_KEYWORDS[mode] || []).includes(normalizedCommand)
+
+    let nextMode = userMode
+    let modeDirective = ""
+    let textForGemini = trimmed
+
     if (!userMode) {
-      if (["1", "uno", "hablar"].includes(interpretedPrompt)) {
+      if (matchesMode(1)) {
+        nextMode = 1
         setUserMode(1)
-        interpretedPrompt = "El usuario eligió hablar y desahogarse. Inicia una conversación empática."
-      } else if (["2", "dos", "ejercicio", "rutina"].includes(interpretedPrompt)) {
+        modeDirective = buildModeDirective(1, { emotionalContext, isNewMode: true })
+        if (trimmed.length <= 7) {
+          textForGemini =
+            "Quiero hablar y desahogarme. Necesito un espacio seguro y empático para expresarme."
+        }
+      } else if (matchesMode(2)) {
+        nextMode = 2
         setUserMode(2)
-        interpretedPrompt = "El usuario eligió ejercicios guiados. Propón un ejercicio de respiración o mindfulness."
-      } else if (["3", "tres", "consejo", "idea"].includes(interpretedPrompt)) {
+        modeDirective = buildModeDirective(2, { isNewMode: true })
+        if (trimmed.length <= 7) {
+          textForGemini = "Busco un ejercicio o rutina guiada para relajarme ahora mismo."
+        }
+      } else if (matchesMode(3)) {
+        nextMode = 3
         setUserMode(3)
-        interpretedPrompt = `El usuario eligió recibir consejos prácticos. 
-Sus respuestas emocionales del quiz son: ${getEmotionalContext()} 
-Ofrece consejos adaptados a ese contexto.`
+        modeDirective = buildModeDirective(3, { emotionalContext, isNewMode: true })
+        if (trimmed.length <= 7) {
+          textForGemini = `Necesito consejos prácticos. ${emotionalContext}`
+        }
       } else {
-        interpretedPrompt = `El usuario dijo "${trimmed}" antes de elegir modo. Invítalo a elegir 1️⃣, 2️⃣ o 3️⃣.`
+        modeDirective =
+          "El usuario aún no elige un modo. Recuérdale con amabilidad que puede escribir 1, 2 o 3 para seleccionar conversación, ejercicios o consejos."
       }
     } else {
-      if (userMode === 1)
-        interpretedPrompt = `Modo conversación empática. Usuario dice: "${trimmed}". Responde validando emociones y escuchando.`
-      else if (userMode === 2)
-        interpretedPrompt = `Modo ejercicios guiados. Usuario dice: "${trimmed}". Continúa con un ejercicio relajante.`
-      else if (userMode === 3)
-        interpretedPrompt = `Modo consejos prácticos. Usuario dice: "${trimmed}". Da recomendaciones realistas según su contexto: ${getEmotionalContext()}`
+      modeDirective = buildModeDirective(userMode, { emotionalContext })
     }
 
     setMessages((prev) => [...prev, { id: Date.now(), role: "user", content: trimmed }])
     setInput("")
     recordStreakCheckIn()
-    sendToGemini(interpretedPrompt)
+    sendToGemini({ userText: textForGemini, modeInstruction: modeDirective, modeOverride: nextMode })
   }
 
   const handleKeyPress = (e) => {
@@ -532,3 +597,4 @@ Ofrece consejos adaptados a ese contexto.`
 }
 
   // ult code
+
